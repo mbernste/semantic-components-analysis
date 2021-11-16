@@ -170,27 +170,6 @@ def solve_dim(V, B):
     return solution[:len(B[0])]
 
 
-def solve_init(V):
-    the_objective = objective_closure(V)
-    print("Solving first dimension...")
-    obj = the_objective
-    solution = minimize(
-        obj,
-        np.concatenate([np.array([1.]), np.zeros(len(V[0])-1)]),
-        options={
-            'maxiter': 10000,
-            'ftol': 0.0001
-        },
-        constraints=[
-            {'type': 'eq', 'fun': unit_constraint_f}
-        ]
-    )
-    print(solution)
-    #print(np.linalg.norm(solution.x))
-    print()
-    return solution.x, solution.success
-
-
 def SCA(V):
     print('Normalizing input vectors...')
     V = np.array([
@@ -202,15 +181,9 @@ def SCA(V):
     # Calculate the first loading vector. We can derive this
     # analytically using Lagrange multipliers (see documentation)
     b_init = np.sum(V, axis=0) / np.linalg.norm(np.sum(V, axis=0))
-    #b_init, status = solve_init(V)
-    status = True
 
     # Initialize the collection of loading vectors
     B = [b_init] 
-
-    # For each loading vector, store whether the optimizer terminated
-    # sucessfully
-    statuses = [status]
 
     # Iterate through all dimensions and compute each loading vector
     for i in range(1, len(V[0])):
@@ -221,7 +194,7 @@ def SCA(V):
         )
         statuses.append(status)
         B.append(new_b)
-    return np.array(B), statuses
+    return np.array(B)
 
 
 def main():
