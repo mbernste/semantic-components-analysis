@@ -188,11 +188,7 @@ def SCA(V):
     # Iterate through all dimensions and compute each loading vector
     for i in range(1, len(V[0])):
         print(f'Solving dimension {i}...')
-        new_b, status = solve_dim(
-            V, 
-            np.array(B)
-        )
-        statuses.append(status)
+        new_b = solve_dim(V, np.array(B))
         B.append(new_b)
     return np.array(B)
 
