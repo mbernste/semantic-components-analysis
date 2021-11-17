@@ -6,14 +6,44 @@ from scipy.optimize import minimize
 from scipy.optimize import fsolve
 
 
-def orth_constraint_closure(beta_curr):
-    def orth_constraint_f(beta):
-        return np.dot(beta_curr, beta)
+def orth_constraint_closure(B):
+    """
+    A closure for creating the function encoding the orthogonal 
+    constraint in the Lagrangian.
+
+    Parameters
+    ----------
+    B: array
+        DxN array of loading vectors where D are the first D
+        loading vectors and N is the dimensionality of the word
+        vector space.
+
+    Returns
+    -------
+    orth_constraint_f: function
+        A function encoding the orthogonality constraint
+    """
+    def orth_constraint_f(b):
+        # b is the candidate basis vector
+        return np.dot(B, b)
     return orth_constraint_f
 
 
-def unit_constraint_f(beta):
-    return np.dot(beta, beta) - 1
+def unit_constraint_f(b):
+    """
+    A function for encoding the unit-norm constraint in the 
+    Lagrangian.
+    
+    Parameters
+    ----------
+    b: array
+        A D-length array encoding a candidate loading vector
+
+    Returns
+    -------
+    The deviation from the unit-norm constraint
+    """
+    return np.dot(b, b) - 1
 
 
 def objective_closure(V):
@@ -126,7 +156,7 @@ def solve_Lagrangian_closure(
         return solve_lagrangian
 
 
-def solve_dim(V, B):
+def solve_dim(V, B, verbose=False):
     """
     Compute the next loading vector.
 
@@ -137,6 +167,8 @@ def solve_dim(V, B):
         DxN array of loading vectors where D are the first D
         loading vectors and N is the dimensionality of the word
         vector space.
+    verbose: boolean
+        If True, output logging messages.
 
     Returns
     -------
@@ -165,12 +197,18 @@ def solve_dim(V, B):
     # Compute the roots of the gradient of the Lagrangian. These will
     # maximize the objective function subject to the orthonormal 
     # constraints.
-    solution = fsolve(lagrangian_wrapper_f, init)
-    
+    solution, infodict, ier, msg = fsolve(lagrangian_wrapper_f, init, full_output=1)
+
+    if verbose: 
+        print(f"Status: {ier}. Message: {msg}")
+
     return solution[:len(B[0])]
 
 
-def SCA(V):
+def SCA(V, n_components=None):
+    if n_components is None:
+        n_components = len(V[0])
+
     print('Normalizing input vectors...')
     V = np.array([
         v/np.linalg.norm(v)
@@ -186,74 +224,11 @@ def SCA(V):
     B = [b_init] 
 
     # Iterate through all dimensions and compute each loading vector
-    for i in range(1, len(V[0])):
+    for i in range(1, n_components):
         print(f'Solving dimension {i}...')
         new_b = solve_dim(V, np.array(B))
         B.append(new_b)
     return np.array(B)
-
-
-def main():
-    E = np.array([
-        [1.,2.,3.,4.,1.],
-        [2.,4.,3.,4.,9.],
-        [1.,2.,2.,1.,8.],
-        [1.,2.5,2.,1.,8.4]
-    ])
-    BETA_FIXED = np.array([
-        #[0.,0.,0.,1.],
-        [0.,0.,1.,0.,0.]
-    ])
-
-    sca, statuses = SCA(E)
-    print(statuses)
-    for i1, x1 in enumerate(sca):
-        for i2, x2 in enumerate(sca):
-            print('element {},{}: {}'.format(i1, i2, np.dot(x1, x2)))
-
-    print('------------')
-    print(sca[0])
-    E2 = np.power(E, 2)
-    beta_init = np.sum(E2, axis=0) / np.linalg.norm(np.sum(E2, axis=0))
-    print(beta_init)
-    print('Their dot is ', np.dot(sca[0], beta_init))
-    E_norm = np.array([e / np.linalg.norm(e) for e in E])
-    print(np.mean([np.dot(x, sca[0]) for x in E_norm]))
-    print(np.mean([np.dot(x, beta_init) for x in E_norm]))
-    print('------------')
-
-    angle_distrs = []
-
-    E_norm = np.array([e / np.linalg.norm(e) for e in E])
-    for beta_i, beta in enumerate(sca):
-        angles = [np.dot(x, beta)**2 for x in E_norm]
-        angle_distrs.append(angles)
-    angle_distrs = np.array(angle_distrs)
-    angle_means = np.mean(angle_distrs, axis=1)
-    print(angle_means)
-
-    print('---------------------------------------------------------')
-
-    import pandas as pd
-    import matplotlib as mpl
-    from matplotlib import pyplot as plt
-    dir_vecs_rand = np.random.rand(5, 3) #- 0.5
-    dir_vecs_rand = np.array([x / np.linalg.norm(x) for x in dir_vecs_rand])
-    print(dir_vecs_rand.shape)
-    sca_rand, solver_statuses =  SCA(
-        dir_vecs_rand 
-    )
-    print(solver_statuses)
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    print(dir_vecs_rand)
-    print(dir_vecs_rand[:,0])
-    ax.quiver(np.zeros(5), np.zeros(5), np.zeros(5), dir_vecs_rand[:,0], dir_vecs_rand[:,1], dir_vecs_rand[:,2], length=1, normalize=True)
-    ax.quiver(np.zeros(3), np.zeros(3), np.zeros(3), sca_rand[:,0], sca_rand[:,1], sca_rand[:,2], color='red', length=1, normalize=True)
-    ax.set_xlim((0,2))
-    ax.set_ylim((0,2))
-    ax.set_zlim((0,2))
-    plt.show()
 
 
 if __name__ == '__main__':
