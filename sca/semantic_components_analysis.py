@@ -46,34 +46,7 @@ def unit_constraint_f(b):
     return np.dot(b, b) - 1
 
 
-def objective_closure(V):
-    """
-    Create the objective function for a given set of word-pair vectors
-    in which the we are maximizing the projection of each word-pair
-    vector on the basis vector.
-
-    Parameters
-    ----------
-    V: array
-        An MxN-length array storing a given normalized word-vector
-        pair (i.e., word_1 - word_2) where M is the number of word
-        pairs and N is the dimensionality of the word vector space.
-
-    Returns
-    -------
-    objective: function
-        The objective function that takes as input a given candidate
-        loading vector and returns the value of the objective 
-        function.
-    """
-    def objective(b):
-        # Compute the value of the objective function for a given
-        # basis function `b`
-        return -1 * np.sum(np.dot(V, b))
-    return objective
-
-
-def grad_Lagrangian_closure(V, beta_curr):
+def grad_Lagrangian_closure(V, beta_curr, squared_obj=False):
     """
     Create the gradient of the Lagrangian function for finding
     the ith loading vector. The roots of this gradient function 
@@ -107,9 +80,14 @@ def grad_Lagrangian_closure(V, beta_curr):
         beta, _lam_orth, _lam_unit = X
 
         # The derivative of the Lagrangian with respect to the betas
-        dbeta = ((1/len(V) * np.sum(V, axis=0)) \
-            - np.dot(beta_curr.T, _lam_orth) \
-            - (_lam_unit * 2 * beta))
+        if squared_obj:
+            dbeta = ((2/len(V)) * np.dot(V.T, np.dot(V, beta)) \
+                - np.dot(beta_curr.T, _lam_orth) \
+                - (_lam_unit * 2 * beta)) 
+        else:
+            dbeta = ((1/len(V) * np.sum(V, axis=0)) \
+                - np.dot(beta_curr.T, _lam_orth) \
+                - (_lam_unit * 2 * beta))
 
         # The derivative of the Lagrangian with respect to the 
         # Lagrange multipliers
@@ -156,7 +134,7 @@ def solve_Lagrangian_closure(
         return solve_lagrangian
 
 
-def solve_dim(V, B, verbose=False):
+def solve_dim(V, B, squared_obj=False, verbose=False):
     """
     Compute the next loading vector.
 
@@ -175,17 +153,16 @@ def solve_dim(V, B, verbose=False):
     b_new: array
         The next (D+1) loading vector
     """
-    the_eq_orth = orth_constraint_closure(B)
-    the_objective = objective_closure(V)
+    orth_constraint_f = orth_constraint_closure(B)
     
     # Compute the gradient of the Lagrangian function
-    grad_lagrangian_f = grad_Lagrangian_closure(V, B)
+    grad_lagrangian_f = grad_Lagrangian_closure(V, B, squared_obj)
     
     # Generate the function that evaluates the gradient of the 
     # Lagrangian at a given input
     lagrangian_wrapper_f = solve_Lagrangian_closure(
         grad_lagrangian_f, 
-        the_eq_orth, 
+        orth_constraint_f, 
         len(B[0]),  # Number of dimensions
         len(B)      # Number of loadings
     )
@@ -205,30 +182,83 @@ def solve_dim(V, B, verbose=False):
     return solution[:len(B[0])]
 
 
-def SCA(V, n_components=None):
-    if n_components is None:
-        n_components = len(V[0])
+def _solve_first_dim_squared_obj(V):
+    def obj_closure(V):
+        def obj(b):
+            return -1 * np.sum(np.dot(V, b))**2
+        return obj
 
-    print('Normalizing input vectors...')
-    V = np.array([
-        v/np.linalg.norm(v)
-        for v in V
-    ])
-    print('done.')
+    obj_f = obj_closure(V)
+    print("Solving first dimension...")
+    solution = minimize(
+        obj_f,
+        np.concatenate([np.array([1.]), np.zeros(len(V[0])-1)]),
+        options={
+            'maxiter': 10000,
+            'ftol': 0.0001
+        },
+        constraints=[
+            {
+                'type': 'eq', 
+                'fun': unit_constraint_f
+            }
+        ]
+    )
+    return solution.x, solution.success
 
-    # Calculate the first loading vector. We can derive this
-    # analytically using Lagrange multipliers (see documentation)
-    b_init = np.sum(V, axis=0) / np.linalg.norm(np.sum(V, axis=0))
 
-    # Initialize the collection of loading vectors
-    B = [b_init] 
+class SCA:
+    """
+    V: array
+        The collection of vectors that represent the word-pairs.
+    n_components: int
+        Number of dimensions to compute.
+    squared_obj: boolean
+        If True, maximize the sum of squared distances of each 
+        word-vector to the next loadings vector.
 
-    # Iterate through all dimensions and compute each loading vector
-    for i in range(1, n_components):
-        print(f'Solving dimension {i}...')
-        new_b = solve_dim(V, np.array(B))
-        B.append(new_b)
-    return np.array(B)
+    Attributes
+    -------
+    components_: array
+        A n_components x D array of loading vectors where D is the 
+        diemsnionality of the word embedding space
+    """
+
+    def __init__(self, n_components=2, squared_obj=False):
+        self.n_components = n_components
+        self.squared_obj = squared_obj
+        self.components_ = None
+
+    def fit(self, V):
+        print('Normalizing input vectors...')
+        V = np.array([
+            v/np.linalg.norm(v)
+            for v in V
+        ])
+        print('done.')
+
+        # Calculate the first loading vector. We can derive this
+        # analytically using Lagrange multipliers (see documentation)
+        if self.squared_obj:
+            print("Solving dimension 0...")
+            b_init, status = _solve_first_dim_squared_obj(V)
+            print("Optimization status: ", status)
+        else:
+            b_init = np.sum(V, axis=0) / np.linalg.norm(np.sum(V, axis=0))
+
+        # Initialize the collection of loading vectors
+        B = [b_init] 
+
+        # Iterate through all dimensions and compute each loading vector
+        for i in range(1, self.n_components):
+            print(f'Solving dimension {i}...')
+            new_b = solve_dim(V, np.array(B), squared_obj=self.squared_obj)
+            B.append(new_b)
+
+        self.components_ = np.array(B)
+
+    def transform(self, V):
+        return np.dot(self.components_, V.T).T
 
 
 if __name__ == '__main__':
